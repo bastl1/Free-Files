@@ -6,6 +6,7 @@ For assembly there are this components:
 5.) Widerstand SMD 805 910-Ohm
 6.) MOS-FET transistor smd, IRLML2030TRPbbF
 7.) USB cable
+8.) 2x wood screw 3.0 x 25 mm 
 
 1. line is: USB plus--R380--poti[1], poti[2]--gate, poti[3]--R910--USB minus
 2. line is: USB plus--LED--drain, source--USB minus
