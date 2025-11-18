@@ -1,0 +1,247 @@
+import bpy
+import math
+import mathutils
+
+# Aufräumen und Einstellungen
+bpy.ops.object.select_all(action='SELECT')
+bpy.ops.object.delete(use_global=False)
+scene = bpy.context.scene
+scene.frame_start = 1
+scene.frame_end = 250
+animation_frames = scene.frame_end
+travel_distance = 2 * math.pi # Verschiebung um eine volle Wellenlänge
+E_color = ( 0 , 0.4 , 1 , 1 )
+B_color = ( 1 , 0.2 , 0 , 1 )
+
+
+
+
+# Material Definitionen
+def create_emissive_material(name, color_rgb, emission_strength=5.0):
+    mat = bpy.data.materials.new(name=name)
+    mat.use_nodes = True
+    bsdf = mat.node_tree.nodes["Principled BSDF"]
+    mat.node_tree.nodes.remove(bsdf)
+    emission = mat.node_tree.nodes.new('ShaderNodeEmission')
+    emission.inputs['Color'].default_value = (*color_rgb, 1.0)
+    emission.inputs['Strength'].default_value = emission_strength
+    material_output = mat.node_tree.nodes.new('ShaderNodeOutputMaterial')
+    mat.node_tree.links.new(emission.outputs['Emission'], material_output.inputs['Surface'])
+    return mat
+
+mat_wall = bpy.data.materials.new(name="Wall_Yellow")
+mat_wall.diffuse_color = (1.0, 0.8, 0.0, 1.0)
+mat_center_line = bpy.data.materials.new(name="Center_Line_Black")
+mat_center_line.diffuse_color = (0.1, 0.1, 0.1, 1.0)
+
+mat_divider = create_emissive_material("Divider_Gray", (0.2, 0.2, 0.2), emission_strength=2.0)
+
+mat_sine_emissive = create_emissive_material("Sine_Wave_Magenta", (1.0, 0.0, 1.0), emission_strength=5.0)
+mat_cosine_emissive = create_emissive_material("Cosine_Wave_Blue", (0.0, 0.0, 1.0), emission_strength=5.0)
+
+
+# Gelbe Wand
+bpy.ops.mesh.primitive_plane_add(size=10, enter_editmode=False, align='WORLD', location=(0, 0, 0))
+wall = bpy.context.object
+wall.rotation_euler[1] = math.radians(90)
+wall.location = (-0.01, 0, 0)
+wall.data.materials.append(mat_wall)
+wall.name = "Yellow_Wall"
+
+# Schwarze Mittellinie
+bpy.ops.mesh.primitive_cube_add(size=1, enter_editmode=False, align='WORLD', location=(0, 0, 0))
+center_line = bpy.context.object
+center_line.scale = (20, 0.02, 0.02)
+center_line.location = (10, 0, 0)
+center_line.data.materials.append(mat_center_line)
+center_line.name = "Center_Line"
+
+# Wellen
+amplitude = 2
+x_start = -2 * math.pi
+x_end = 6 * math.pi
+num_points = 100
+segment_length = (x_end - x_start) / (num_points - 1)
+
+def create_wave_curve(name, wave_color, wave_func, axis_index):
+    # create curve data
+    curve_data = bpy.data.curves.new(name, type='CURVE')
+    curve_data.dimensions = '3D'
+    
+    # create spline
+    spline = curve_data.splines.new('BEZIER')
+    spline.bezier_points.add(num_points-1)
+    
+    for i in range(num_points):
+        x = x_start + i * segment_length
+        coords = [x, 0, 0]
+        coords[axis_index] = amplitude * wave_func(x)
+        spline.bezier_points[i].co = tuple(coords)
+        spline.bezier_points[i].handle_left_type = 'AUTO'
+        spline.bezier_points[i].handle_right_type = 'AUTO'
+    
+    # create object
+    obj = bpy.data.objects.new(name+"_Object", curve_data)
+    bpy.context.collection.objects.link(obj)
+    
+    # make curve visible as tube
+    curve_data.bevel_depth = 0.07
+    curve_data.fill_mode = 'FULL'
+    
+    # create emission material
+    mat = bpy.data.materials.new(name + "_Mat")
+    mat.use_nodes = True
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+    
+    # remove default Principled BSDF
+    for n in nodes:
+        nodes.remove(n)
+    
+    # create emission shader
+    emission = nodes.new(type='ShaderNodeEmission')
+    emission.inputs['Color'].default_value = wave_color
+    emission.inputs['Strength'].default_value = 2
+    
+    # output
+    output = nodes.new(type='ShaderNodeOutputMaterial')
+    links.new(emission.outputs['Emission'], output.inputs['Surface'])
+    
+    obj.data.materials.append(mat)
+    
+    return obj
+
+# Magenta sine wave on Z-axis
+obj_sine = create_wave_curve("Sine_Wave_Z", E_color, math.sin, 2)
+
+# Blue cosine wave on Y-axis
+obj_cosine = create_wave_curve("Cosine_Wave_Y", B_color, math.cos, 1)
+
+
+# Animat waves
+def animate_continuous_flow(obj):
+    obj.animation_data_create()
+    obj.animation_data.action = bpy.data.actions.new(name=obj.name + "Action")
+    pos_x = obj.animation_data.action.fcurves.new(data_path="location", index=0)
+    pos_x.keyframe_points.insert(frame=1, value=0)
+    pos_x.keyframe_points.insert(frame=animation_frames, value=travel_distance)
+    
+    for kp in pos_x.keyframe_points:
+        kp.interpolation = 'LINEAR'
+    
+    pos_x.extrapolation = 'LINEAR'
+    
+animate_continuous_flow(obj_sine)
+animate_continuous_flow(obj_cosine)
+    
+
+# vector lines
+def create_solid_line(name, start, end, diameter, color):
+    # Create a curve
+    curve_data = bpy.data.curves.new(name=name+"_Curve", type='CURVE')
+    curve_data.dimensions = '3D'
+    # Single straight spline
+    spline = curve_data.splines.new('BEZIER')
+    spline.bezier_points.add(1)  # 2 points total
+    
+    spline.bezier_points[0].co = start
+    spline.bezier_points[1].co = end
+    
+    for bp in spline.bezier_points:
+        bp.handle_left_type = 'VECTOR'
+        bp.handle_right_type = 'VECTOR'
+    
+    # Create object
+    obj = bpy.data.objects.new(name, curve_data)
+    bpy.context.collection.objects.link(obj)
+    
+    # Make it solid (tube)
+    curve_data.bevel_depth = diameter / 2
+    curve_data.fill_mode = 'FULL'
+    
+    # Create a material
+    mat = bpy.data.materials.new(name + "_Mat")
+    mat.diffuse_color = color  # RGBA
+    mat.use_nodes = True
+    bsdf = mat.node_tree.nodes.get("Principled BSDF")
+    if bsdf:
+        bsdf.inputs['Base Color'].default_value = color
+    obj.data.materials.append(mat)
+    
+    return obj
+
+# create lines, vectors
+vector_distance = 0.5
+diameter = 0.05
+all_e_vectors = []
+all_b_vectors = []
+
+for i in range(0,30):
+    E_x = vector_distance * i
+    B_x = 0.25 + vector_distance * i
+    L_e = amplitude * math.sin( E_x )
+    L_b = amplitude * math.sin( B_x + math.pi - 0.25)
+    
+    obj_e_vector = create_solid_line("sinLine_{i}", (E_x,0,0),(E_x,0,L_e), diameter, E_color)
+    all_e_vectors.append(obj_e_vector)
+    obj_b_vector = create_solid_line("sinLine_{i}", (B_x,0,0),(B_x,L_b,0), diameter, B_color)
+    all_b_vectors.append(obj_b_vector)
+
+
+# animate E-vectors
+for obj in all_e_vectors:
+    spline = obj.data.splines[0]
+    start = spline.bezier_points[0].co.copy()
+    end = spline.bezier_points[1].co.copy()
+
+    for f in range( 0, animation_frames ):
+        X = - start.x + 2 * math.pi
+        # Lenge_z = amplitude * sin( X * ( 2 * Pi * factor( frame_num f / total frames )
+        Z = - amplitude * math.sin( X + travel_distance * ( f / animation_frames ) )
+        if Z != 0:
+            end.z = Z
+            
+        spline.bezier_points[1].co = end
+        spline.bezier_points[1].keyframe_insert("co", frame=f)
+
+
+# animate B-vectors
+for obj in all_b_vectors:
+    spline = obj.data.splines[0]
+    start = spline.bezier_points[0].co.copy()
+    end = spline.bezier_points[1].co.copy()
+
+    for f in range( 0, animation_frames ):
+        
+        X = - start.x - 1.5 * math.pi
+        Y = amplitude * math.sin(  X + travel_distance * ( f / animation_frames ) )
+        if Y != 0:
+            end.y = Y
+        
+        spline.bezier_points[1].co = end
+        spline.bezier_points[1].keyframe_insert("co", frame=f)
+    
+
+# Kamera und Licht
+bpy.ops.object.camera_add(enter_editmode=False, align='VIEW', 
+    location=(13.6, -5.2, 3), 
+    rotation=(math.radians(77.8), 0, math.radians(62.5)))
+
+cam = bpy.context.object
+cam.name = "Scene_Camera"
+bpy.context.scene.camera = cam
+cam.data.lens = 25
+
+bpy.ops.object.light_add(type='AREA', align='WORLD', location=(20, -12, 5))
+light = bpy.context.object
+light.data.energy = 3000
+light.data.size = 2
+light.rotation_euler = (math.radians(61.3), math.radians(62.2), math.radians(32.7))
+
+# Renderer Einstellungen
+bpy.context.scene.render.engine = 'CYCLES'
+bpy.context.scene.cycles.samples = 128
+bpy.context.scene.world.use_nodes = True
+bg = bpy.context.scene.world.node_tree.nodes["Background"]
+bg.inputs[0].default_value = (0.05, 0.05, 0.05, 1)
+bg.inputs[1].default_value = 0.5
