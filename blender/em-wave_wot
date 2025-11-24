@@ -1,0 +1,406 @@
+import bpy
+import math
+import mathutils
+
+# Aufräumen und Einstellungen
+bpy.ops.object.select_all(action='SELECT')
+bpy.ops.object.delete(use_global=False)
+scene = bpy.context.scene
+scene.frame_start = 0
+scene.frame_end = 250
+animation_frames = scene.frame_end+2
+travel_distance = 2 * math.pi # Verschiebung um eine volle Wellenlänge
+E_color = ( 0 , 0.4 , 1 , 1 )
+B_color = ( 1 , 0.2 , 0 , 1 )
+
+
+# Material Definitionen
+def create_emissive_material(name, color_rgb, emission_strength=5.0):
+    mat = bpy.data.materials.new(name=name)
+    mat.use_nodes = True
+    bsdf = mat.node_tree.nodes["Principled BSDF"]
+    mat.node_tree.nodes.remove(bsdf)
+    emission = mat.node_tree.nodes.new('ShaderNodeEmission')
+    emission.inputs['Color'].default_value = (*color_rgb, 1.0)
+    emission.inputs['Strength'].default_value = emission_strength
+    material_output = mat.node_tree.nodes.new('ShaderNodeOutputMaterial')
+    mat.node_tree.links.new(emission.outputs['Emission'], material_output.inputs['Surface'])
+    return mat
+
+mat_wall = bpy.data.materials.new(name="Wall_Yellow")
+mat_wall.diffuse_color = (1.0, 0.8, 0.0, 1.0)
+mat_center_line = bpy.data.materials.new(name="Center_Line_Black")
+mat_center_line.diffuse_color = (0.1, 0.1, 0.1, 1.0)
+
+mat_divider = create_emissive_material("Divider_Gray", (0.2, 0.2, 0.2), emission_strength=2.0)
+
+mat_sine_emissive = create_emissive_material("Sine_Wave_Magenta", (1.0, 0.0, 1.0), emission_strength=5.0)
+mat_cosine_emissive = create_emissive_material("Cosine_Wave_Blue", (0.0, 0.0, 1.0), emission_strength=5.0)
+
+
+# Gelbe Wand
+bpy.ops.mesh.primitive_plane_add(size=10, enter_editmode=False, align='WORLD', location=(0, 0, 0))
+wall = bpy.context.object
+wall.rotation_euler[1] = math.radians(90)
+wall.location = (-0.01, 0, 0)
+wall.data.materials.append(mat_wall)
+wall.name = "Yellow_Wall"
+
+# Schwarze Mittellinie
+bpy.ops.mesh.primitive_cube_add(size=1, enter_editmode=False, align='WORLD', location=(0, 0, 0))
+center_line = bpy.context.object
+center_line.scale = (20, 0.02, 0.02)
+center_line.location = (10, 0, 0)
+center_line.data.materials.append(mat_center_line)
+center_line.name = "Center_Line"
+
+# Wellen
+amplitude = 2
+x_start = -2 * math.pi
+x_end = 6 * math.pi
+num_points = 100
+segment_length = (x_end - x_start) / (num_points - 1)
+
+# wave
+def create_wave_curve(name, wave_color, wave_func, axis_index):
+    # create curve data
+    curve_data = bpy.data.curves.new(name, type='CURVE')
+    curve_data.dimensions = '3D'
+    
+    # create spline
+    spline = curve_data.splines.new('BEZIER')
+    spline.bezier_points.add(num_points - 1)
+    
+    for i in range(num_points):
+        x = x_start + i * segment_length
+        coords = [x, 0, 0]
+        coords[axis_index] = amplitude * wave_func(x)
+        bp = spline.bezier_points[i]
+        bp.co = coords
+        bp.handle_left_type = 'AUTO'
+        bp.handle_right_type = 'AUTO'
+
+    # create object
+    obj_wave = bpy.data.objects.new(name + "_Object", curve_data)
+    bpy.context.collection.objects.link(obj_wave)
+    
+    # no shadows
+    obj_wave.cycles.cast_shadow = False
+    obj_wave.visible_shadow = False
+
+    # MAKE CURVE A TUBE 
+    curve_data.bevel_depth = 0.07
+    curve_data.bevel_resolution = 6
+    curve_data.fill_mode = 'FULL'
+
+    # create emission material
+    mat = bpy.data.materials.new(name + "_Mat")
+    mat.use_nodes = True
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+
+    # remove everything
+    for n in nodes:
+        nodes.remove(n)
+
+    # emission
+    emission = nodes.new("ShaderNodeEmission")
+    emission.inputs["Color"].default_value = wave_color
+    emission.inputs["Strength"].default_value = 2.0
+
+    # output
+    output = nodes.new("ShaderNodeOutputMaterial")
+    links.new(emission.outputs["Emission"], output.inputs["Surface"])
+
+    obj_wave.data.materials.append(mat)
+
+    return obj_wave
+
+# sine wave plane XZ
+obj_sine = create_wave_curve("Sine_Wave_Z", E_color, math.sin, 2)
+
+# cosine wave plane XY
+obj_cosine = create_wave_curve("Cosine_Wave_Y", B_color, math.cos, 1)
+
+
+# Animat waves
+def animate_continuous_flow(obj):
+    obj.animation_data_create()
+    obj.animation_data.action = bpy.data.actions.new(name=obj.name + "Action")
+    pos_x = obj.animation_data.action.fcurves.new(data_path="location", index=0)
+    pos_x.keyframe_points.insert(frame=1, value=0)
+    pos_x.keyframe_points.insert(frame=animation_frames, value=travel_distance)
+    
+    for kp in pos_x.keyframe_points:
+        kp.interpolation = 'LINEAR'
+    
+    pos_x.extrapolation = 'LINEAR'
+    
+animate_continuous_flow(obj_sine)
+animate_continuous_flow(obj_cosine)
+    
+
+# vector lines
+def create_solid_line(name, start, end, diameter, color):
+    # Create a curve
+    curve_data = bpy.data.curves.new(name=name+"_Curve", type='CURVE')
+    curve_data.dimensions = '3D'
+    # Single straight spline
+    spline = curve_data.splines.new('BEZIER')
+    spline.bezier_points.add(1)  # 2 points total
+    
+    spline.bezier_points[0].co = start
+    spline.bezier_points[1].co = end
+    
+    for bp in spline.bezier_points:
+        bp.handle_left_type = 'VECTOR'
+        bp.handle_right_type = 'VECTOR'
+    
+    # Create object
+    obj_lines = bpy.data.objects.new(name, curve_data)
+    bpy.context.collection.objects.link(obj_lines)
+    
+    # Make it solid (tube)
+    curve_data.bevel_depth = diameter / 2
+    curve_data.fill_mode = 'FULL'
+    
+    # Create a material
+    mat = bpy.data.materials.new(name + "_Mat")
+    mat.diffuse_color = color  # RGBA
+    mat.use_nodes = True
+    bsdf = mat.node_tree.nodes.get("Principled BSDF")
+    if bsdf:
+        bsdf.inputs['Base Color'].default_value = color
+    obj_lines.data.materials.append(mat)
+    
+    return obj_lines
+
+# create lines, vectors
+vector_distance = 0.5
+diameter = 0.05
+all_e_vectors = []
+all_b_vectors = []
+
+for i in range(0,30):
+    E_x = vector_distance * i
+    B_x = 0.25 + vector_distance * i
+    L_e = amplitude * math.sin( E_x )
+    L_b = amplitude * math.sin( B_x + math.pi - 0.25)
+    
+    obj_e_vector = create_solid_line("E_Line_{i}", (E_x,0,0),(E_x,0,L_e), diameter, E_color)
+    all_e_vectors.append(obj_e_vector)
+    obj_b_vector = create_solid_line("B_Line_{i}", (B_x,0,0),(B_x,L_b,0), diameter, B_color)
+    all_b_vectors.append(obj_b_vector)
+
+
+# animate E-vectors
+for obj in all_e_vectors:
+    spline = obj.data.splines[0]
+    start = spline.bezier_points[0].co.copy()
+    end = spline.bezier_points[1].co.copy()
+
+    for f in range( 1, animation_frames ):
+        X = - start.x + 2 * math.pi
+        # Lenge_z = amplitude * sin( X * ( 2 * Pi * factor( frame_num f / total frames )
+        Z = - amplitude * math.sin( X + travel_distance * ( f / animation_frames ) )
+        if Z != 0:
+            end.z = Z
+            
+        spline.bezier_points[1].co = end
+        spline.bezier_points[1].keyframe_insert("co", frame=f)
+
+
+# animate B-vectors
+for obj in all_b_vectors:
+    spline = obj.data.splines[0]
+    start = spline.bezier_points[0].co.copy()
+    end = spline.bezier_points[1].co.copy()
+
+    for f in range( 0, animation_frames ):
+        
+        X = - start.x - 1.5 * math.pi
+        Y = amplitude * math.sin(  X + travel_distance * ( f / animation_frames ) )
+        if Y != 0:
+            end.y = Y
+        
+        spline.bezier_points[1].co = end
+        spline.bezier_points[1].keyframe_insert("co", frame=f)
+    
+
+
+# arrow + text data
+depth = 0.15
+offset = 3.8
+
+# arrow E
+def create_arrow_E(name, extrusion, color):
+    verts = [
+        # Arrowhead
+        ( 1, 0, -0.0), # 0: Tip
+        ( 0.6, 0, -0.1), # 1: Head Left
+        ( 0.6, 0, 0.1), # 2: Head Right
+
+        # Arrow Stem
+        ( 0, 0, 0.05), # 3: top left
+        ( 0.6, 0, 0.05), # 4: top right
+        ( 0.6, 0, -0.05), # 5: bottom right
+        ( 0, 0, -0.05)  # 6: bottom left
+    ]
+
+    # Edges (Not strictly necessary for a single face, but good for visualization)
+    edges = []
+
+    # Faces (Define the single, non-overlapping face of the arrow)
+    faces = [ (0, 1, 2), (3, 4, 5, 6) ]
+
+    mesh = bpy.data.meshes.new(name + "_mesh")
+    mesh.from_pydata(verts, edges, faces)
+    mesh.update()
+    # Create the object
+    obj_arrow_E = bpy.data.objects.new(name, mesh)
+
+    # Link object to the scene collection
+    bpy.context.collection.objects.link(obj_arrow_E)
+
+    # --- Apply Solidify Modifier for Extrusion (Same style as text) ---
+    solidify_modifier = obj_arrow_E.modifiers.new(name="Solidify", type='SOLIDIFY')
+    solidify_modifier.thickness = extrusion
+    solidify_modifier.offset = 0.0 # Center the extrusion
+    
+    # Create a material
+    mat = bpy.data.materials.new(name + "_Mat")
+    mat.diffuse_color = color  # RGBA
+    mat.use_nodes = True
+    bsdf = mat.node_tree.nodes.get("Principled BSDF")
+    if bsdf:
+        bsdf.inputs['Base Color'].default_value = color
+    obj_arrow_E.data.materials.append(mat)
+
+    return obj_arrow_E
+
+# create arrow E
+#obj_arrow_e = create_arrow_E("arrow-E", depth, E_color)
+#obj_arrow_e.location = (4, 0, offset )
+#obj_arrow_e.select_set(True)
+
+
+# arrow B
+def create_arrow_B(name, extrusion, color):
+    verts = [
+        # Arrowhead
+        ( 1, -0.0, 0), # 0: Tip
+        ( 0.6, -0.1, 0), # 1: Head Left
+        ( 0.6, 0.1, 0), # 2: Head Right
+
+        # Arrow Stem
+        ( 0, 0.05, 0), # 3: top left
+        ( 0.6, 0.05, 0), # 4: top right
+        ( 0.6, -0.05, 0), # 5: bottom right
+        ( 0, -0.05, 0)  # 6: bottom left
+    ]
+
+    # Edges (Not strictly necessary for a single face, but good for visualization)
+    edges = []
+
+    # Faces (Define the single, non-overlapping face of the arrow)
+    faces = [ (0, 1, 2), (3, 4, 5, 6) ]
+
+    mesh = bpy.data.meshes.new(name + "_mesh")
+    mesh.from_pydata(verts, edges, faces)
+    mesh.update()
+    # Create the object
+    obj_arrow_B = bpy.data.objects.new(name, mesh)
+
+    # Link object to the scene collection
+    bpy.context.collection.objects.link(obj_arrow_B)
+
+    # --- Apply Solidify Modifier for Extrusion (Same style as text) ---
+    solidify_modifier = obj_arrow_B.modifiers.new(name="Solidify", type='SOLIDIFY')
+    solidify_modifier.thickness = extrusion
+    solidify_modifier.offset = 0.0 # Center the extrusion
+    
+    # Create a material
+    mat = bpy.data.materials.new(name + "_Mat")
+    mat.diffuse_color = color  # RGBA
+    mat.use_nodes = True
+    bsdf = mat.node_tree.nodes.get("Principled BSDF")
+    if bsdf:
+        bsdf.inputs['Base Color'].default_value = color
+    obj_arrow_B.data.materials.append(mat)
+
+    return obj_arrow_B
+
+# create arrow B
+#obj_arrow_b = create_arrow_B("arrow-B", depth, B_color)
+#obj_arrow_b.location = (4, -2.8, 0 )
+#obj_arrow_b.select_set(True)
+
+
+# Create Text
+def creat_text( name="Text", text="text", color=(0,0,1,1), extrusion=0.3, location=(0,0,0), plane=2):
+    bpy.ops.object.text_add(location=location, rotation=(0, 0, 0))
+    obj_text = bpy.context.object
+    obj_text.name = name
+    obj_text.data.body = text
+    obj_text.data.size = 1.5
+    obj_text.data.extrude = extrusion/2
+    obj_text.select_set(True)
+    #obj_text.data.color = color
+    
+    plane_rotations = {      
+        #0: lambda o: o.rotation_euler.__setitem__(2, 0),
+        1: lambda o: o.rotation_euler.__setitem__(0, math.pi/2),
+        2: lambda o:
+            (                                                  
+            o.rotation_euler.__setitem__(0, math.pi/2),
+            o.rotation_euler.__setitem__(2, math.pi/2)
+            )
+        }
+
+    if plane in plane_rotations:
+        plane_rotations[plane](obj_text)
+        
+    # add material
+    mat = bpy.data.materials.new(name + "_Mat")
+    mat.diffuse_color = color  # RGBA
+    mat.use_nodes = True
+    bsdf = mat.node_tree.nodes["Principled BSDF"]
+    if bsdf:
+        bsdf.inputs['Base Color'].default_value = color
+    obj_text.data.materials.append(mat)
+    
+    return obj_text
+
+# create E
+#obj_E = creat_text("text_e","E", E_color, depth, (4,0,2.5), 1)
+#obj_E.select_set(True)
+
+# create B
+#obj_B = creat_text("text_b","B", B_color, depth, (4,-4.1,0), 0)
+#obj_B.select_set(True)
+
+
+# Kamera
+bpy.ops.object.camera_add(enter_editmode=False, align='VIEW', 
+    location=(13.6, -5.2, 3), 
+    rotation=(math.radians(77.8), 0, math.radians(62.5)))
+
+cam = bpy.context.object
+cam.name = "Scene_Camera"
+bpy.context.scene.camera = cam
+cam.data.lens = 25
+
+# light
+bpy.ops.object.light_add(type='AREA', align='WORLD', location=(20, -12, 5))
+light = bpy.context.object
+light.data.energy = 3000
+light.data.size = 4
+light.rotation_euler = (math.radians(61.3), math.radians(62.2), math.radians(32.7))
+
+# Renderer Einstellungen
+bpy.context.scene.render.engine = 'CYCLES'
+bpy.context.scene.cycles.samples = 64
+bpy.context.scene.world.use_nodes = True
+bg = bpy.context.scene.world.node_tree.nodes["Background"]
+bg.inputs[0].default_value = (0.05, 0.05, 0.05, 1)
+bg.inputs[1].default_value = 0.5
