@@ -6,7 +6,7 @@ import mathutils
 bpy.ops.object.select_all(action='SELECT')
 bpy.ops.object.delete(use_global=False)
 scene = bpy.context.scene
-scene.frame_start = 1
+scene.frame_start = 0
 scene.frame_end = 250
 animation_frames = scene.frame_end
 travel_distance = 2 * math.pi # Verschiebung um eine volle Wellenlänge
