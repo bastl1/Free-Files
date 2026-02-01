@@ -1,5 +1,5 @@
 {
-    "base_id": "10652",
+    "base_id": "36019",
     "deretraction_speed": [
         "50"
     ],
@@ -7,7 +7,7 @@
     "inherits": "Creality Hi 0.4 nozzle",
     "is_custom_defined": "0",
     "machine_end_gcode": "G1 X0 Y260 F30000\nG91\nG1 Z+2 F3000\nG90\nM140 S0\nM104 S0\nEND_PRINT",
-    "machine_start_gcode": "M140 S60\nM104 S140\nSTART_PRINT EXTRUDER_TEMP=[nozzle_temperature_initial_layer] BED_TEMP=[bed_temperature_initial_layer_single]\nT[initial_no_support_extruder]\nM104 S[nozzle_temperature_initial_layer]\nM204 S2000\nG1 X0 Y260 Z80 F3000\nM83\nG1 E+2 F300\nG4 P3000\nG1 Z70 F500\nG1 Z30 F3000\nG1 Y130 Z0.3 F3000\nG1 E+1.3 F300\nG1 X0 Y0 E+15 F{filament_max_volumetric_speed[initial_extruder]/0.3*60}\nG1 X130 Y0 E+15 F{filament_max_volumetric_speed[initial_extruder]/0.3*60}\nG92 E0\nG1 X135 Z0.1 F3000\n",
+    "machine_start_gcode": "M140 S60\nM104 S140\nSTART_PRINT EXTRUDER_TEMP=[nozzle_temperature_initial_layer] BED_TEMP=[bed_temperature_initial_layer_single]\nT[initial_no_support_extruder]\nM104 S[nozzle_temperature_initial_layer]\nM204 S2000\nG1 X0 Y260 Z80 F3000\nM83\nG1 E2 F300\nG4 P3000\nG1 Z30 F3000\nG1 Y130 Z0.3 E1.3 F3000\nG1 X0 Y0 E+15 F{filament_max_volumetric_speed[initial_extruder]/0.3*60}\nG1 X130 Y0 E+15 F{filament_max_volumetric_speed[initial_extruder]/0.3*60}\nG92 E0\nG1 X135 Z0.1 F3000\n",
     "machine_unload_filament_time": "100",
     "name": "Creality Hi 0.4 _opti",
     "printer_settings_id": "Creality Hi 0.4 _opti",
